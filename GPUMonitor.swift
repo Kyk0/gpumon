@@ -5,7 +5,7 @@ import SwiftUI
 
 let base = URL(string: "http://127.0.0.1:8765")!
 let dashboard = URL(string: "http://localhost:8765")!
-let panelWidth: CGFloat = 280
+let panelWidth: CGFloat = 300
 
 // MARK: - Data
 
@@ -102,9 +102,15 @@ enum T {
     static let red = Color(red: 1.0, green: 0.40, blue: 0.42)
     static let blue = Color(red: 0.42, green: 0.64, blue: 1.0)
     static func load(_ f: Double) -> Color { f >= 0.9 ? red : f >= 0.6 ? amber : green }
+    // Distinct colors for other users; blue is reserved for "you".
+    static let palette: [Color] = [
+        Color(red: 0.93, green: 0.45, blue: 0.85), Color(red: 1.0, green: 0.80, blue: 0.35), Color(red: 0.35, green: 0.85, blue: 0.80),
+        Color(red: 1.0, green: 0.55, blue: 0.40), Color(red: 0.70, green: 0.55, blue: 1.0), Color(red: 0.75, green: 0.92, blue: 0.40),
+        Color(red: 1.0, green: 0.45, blue: 0.55), Color(red: 0.55, green: 0.90, blue: 0.55),
+    ]
     static func user(_ name: String) -> Color {
         let h = name.unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) }
-        return Color(hue: Double(abs(h) % 360) / 360, saturation: 0.55, brightness: 0.95)
+        return palette[abs(h) % palette.count]
     }
 }
 
@@ -139,7 +145,59 @@ struct IconButton: View {
     }
 }
 
-// MARK: - GPU row: "● name   97%  69/80G", thin VRAM bar, who's on it
+// MARK: - GPU card: name + big util, sparkline, per-user stacked VRAM bar, legend
+
+struct UserUse { let name: String; let mem: Double; let mine: Bool; let elapsed: Int? }
+
+func userColor(_ u: UserUse) -> Color { u.mine ? T.blue : T.user(u.name) }
+
+struct Spark: View {
+    let points: [[Double?]]; let color: Color
+    func path(_ size: CGSize, close: Bool) -> Path {
+        var p = Path()
+        let n = points.count
+        for i in 0..<n {
+            let u = points[i].count > 1 ? (points[i][1] ?? 0) : 0
+            let pt = CGPoint(x: size.width * CGFloat(i) / CGFloat(max(1, n - 1)), y: size.height * (1 - CGFloat(min(100, u)) / 100) + 1)
+            i == 0 ? p.move(to: pt) : p.addLine(to: pt)
+        }
+        if close { p.addLine(to: CGPoint(x: size.width, y: size.height)); p.addLine(to: CGPoint(x: 0, y: size.height)); p.closeSubpath() }
+        return p
+    }
+    var body: some View {
+        GeometryReader { g in
+            if points.count > 1 {
+                ZStack {
+                    path(g.size, close: true).fill(LinearGradient(colors: [color.opacity(0.30), color.opacity(0)], startPoint: .top, endPoint: .bottom))
+                    path(g.size, close: false).stroke(color, style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+                }
+            }
+        }
+        .frame(height: 20)
+    }
+}
+
+struct StackedBar: View {
+    let users: [UserUse]; let used: Double; let total: Double
+    var body: some View {
+        GeometryReader { g in
+            let w = g.size.width
+            let other = max(0, used - users.reduce(0) { $0 + $1.mem })
+            HStack(spacing: 1.5) {
+                ForEach(Array(users.enumerated()), id: \.offset) { _, u in
+                    Rectangle().fill(userColor(u)).frame(width: max(2, w * u.mem / max(1, total)))
+                }
+                if other > total * 0.005 { Rectangle().fill(Color.white.opacity(0.35)).frame(width: w * other / max(1, total)) }
+                Spacer(minLength: 0)
+            }
+            .frame(width: w, alignment: .leading)
+            .background(Color.white.opacity(0.07))
+            .clipShape(Capsule())
+        }
+        .frame(height: 6)
+        .animation(.easeOut(duration: 0.5), value: used)
+    }
+}
 
 struct GPURow: View {
     let h: Host; let g: GPU
@@ -147,60 +205,110 @@ struct GPURow: View {
     @State private var hover = false
     @State private var confirming = false
 
-    var dot: Color { h.ok == true ? T.load(g.utilFrac) : h.ok == false ? T.red : T.amber }
-    var users: [(String, Double, Bool)] {
-        var order: [String] = [], mem: [String: Double] = [:], mine: [String: Bool] = [:]
+    var users: [UserUse] {
+        var order: [String] = [], mem: [String: Double] = [:], mine: [String: Bool] = [:], el: [String: Int] = [:]
         for p in g.procs {
             if mem[p.user] == nil { order.append(p.user) }
             mem[p.user, default: 0] += p.mem ?? 0
             mine[p.user] = p.mine
+            el[p.user] = max(el[p.user] ?? 0, p.elapsed ?? 0)
         }
-        return order.map { ($0, mem[$0]!, mine[$0]!) }
+        return order.map { UserUse(name: $0, mem: mem[$0]!, mine: mine[$0]!, elapsed: el[$0]) }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Circle().fill(dot).frame(width: 6, height: 6)
-                Text(h.label).font(.system(size: 12, weight: .semibold)).foregroundColor(T.text)
-                if h.gpus.count > 1 { Text("\(g.index)").font(.system(size: 10, weight: .medium)).foregroundColor(T.faint) }
+        let load = T.load(g.utilFrac)
+        let us = users
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Circle().fill(load).frame(width: 7, height: 7).shadow(color: load.opacity(0.8), radius: 3)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                Text(h.label).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(T.text)
+                Text(h.gpus.count > 1 ? "\(g.index) · \(model_(g.name))" : model_(g.name))
+                    .font(.system(size: 9.5, weight: .medium)).foregroundColor(T.faint).lineLimit(1)
                 Spacer(minLength: 4)
                 if hover && g.index == h.gpus.first?.index {
                     Button {
                         if confirming { model.send("DELETE", "api/hosts/\(h.label)") { _ in } } else { confirming = true }
                     } label: {
-                        Text(confirming ? "remove" : "✕").font(.system(size: 9.5, weight: .semibold))
+                        Text(confirming ? "remove?" : "✕").font(.system(size: 9.5, weight: .semibold))
                             .foregroundColor(confirming ? T.red : T.faint)
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).help("Remove server")
                 }
-                Text("\(Int(g.util ?? 0))%").font(.system(size: 12, weight: .semibold).monospacedDigit())
-                    .foregroundColor(T.load(g.utilFrac)).frame(width: 38, alignment: .trailing)
-                Text("\(gb0(g.mem_used))/\(gb0(g.mem_total))G").font(.system(size: 10.5).monospacedDigit())
-                    .foregroundColor(T.dim).frame(width: 50, alignment: .trailing)
+                Text("\(Text("\(Int(g.util ?? 0))").font(.system(size: 20, weight: .bold, design: .rounded)))\(Text("%").font(.system(size: 10, weight: .bold, design: .rounded)))")
+                    .foregroundColor(load).contentTransition(.numericText())
             }
-            Meter(frac: g.memFrac, color: T.load(g.memFrac).opacity(0.85))
-            if users.isEmpty {
-                Text("idle").font(.system(size: 10)).foregroundColor(T.green.opacity(0.8))
+            Spark(points: g.history ?? [], color: load)
+            StackedBar(users: us, used: g.mem_used ?? 0, total: g.mem_total ?? 0)
+            HStack(spacing: 0) {
+                Text("\(Text(gb(g.mem_used)).foregroundColor(T.text)) / \(gb0(g.mem_total)) GB")
+                Spacer()
+                Text("\(Int(g.temp ?? 0))°C   \(Int(g.power ?? 0)) W")
+            }
+            .font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundColor(T.faint)
+            if us.isEmpty {
+                Text("idle — free to use").font(.system(size: 10, weight: .medium)).foregroundColor(T.green)
             } else {
-                users.enumerated().reduce(Text("")) { acc, e in
-                    let (i, u) = e
-                    let part = Text("\(u.2 ? "you" : u.0) \(gb0(u.1))G").foregroundColor(u.2 ? T.blue : T.faint)
-                    return i == 0 ? part : Text("\(acc)\(Text("  ·  ").foregroundColor(T.faint))\(part)")
-                }
-                .font(.system(size: 10)).lineLimit(1).truncationMode(.tail)
+                FlowLegend(users: us)
             }
         }
-        .padding(.vertical, 7)
-        .contentShape(Rectangle())
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(hover ? 0.07 : 0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(T.stroke, lineWidth: 1))
         .onHover { hover = $0; if !$0 { confirming = false } }
         .help(tooltip)
     }
 
+    func model_(_ n: String) -> String {
+        n.replacingOccurrences(of: "NVIDIA ", with: "").replacingOccurrences(of: "Quadro ", with: "")
+    }
+
     var tooltip: String {
-        var lines = ["\(h.label) · \(g.name) · \(Int(g.temp ?? 0))°C · \(Int(g.power ?? 0))W", h.target]
-        if let e = h.error, h.ok != true { lines.append(e) }
-        for p in g.procs { lines.append("\(p.user)  \(gb(p.mem))G  \(dur(p.elapsed))  \(shortCmd(p.cmd).prefix(70))") }
+        var lines = ["\(g.name) · \(h.target)"]
+        for p in g.procs { lines.append("\(p.user)  \(gb(p.mem)) GB  \(dur(p.elapsed))  \(shortCmd(p.cmd).prefix(70))") }
         return lines.joined(separator: "\n")
+    }
+}
+
+// Users as "● name 8G", wrapping onto as many lines as needed.
+struct FlowLegend: View {
+    let users: [UserUse]
+    var body: some View {
+        FlowLayout(spacing: 9, lineSpacing: 3) {
+            ForEach(Array(users.enumerated()), id: \.offset) { _, u in
+                HStack(spacing: 4) {
+                    Circle().fill(userColor(u)).frame(width: 5, height: 5)
+                    Text(u.mine ? "you" : u.name).foregroundColor(u.mine ? T.blue : T.dim)
+                        .fontWeight(u.mine ? .semibold : .regular)
+                    Text("\(gb0(u.mem))G" + (u.mine ? " · \(dur(u.elapsed))" : "")).foregroundColor(T.faint)
+                }
+                .font(.system(size: 10).monospacedDigit())
+                .fixedSize()
+            }
+        }
+    }
+}
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat; var lineSpacing: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, lineH: CGFloat = 0, maxX: CGFloat = 0
+        for s in subviews {
+            let sz = s.sizeThatFits(.unspecified)
+            if x > 0 && x + sz.width > w { x = 0; y += lineH + lineSpacing; lineH = 0 }
+            x += sz.width + spacing; lineH = max(lineH, sz.height); maxX = max(maxX, x - spacing)
+        }
+        return CGSize(width: proposal.width ?? maxX, height: y + lineH)
+    }
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = b.minX, y = b.minY, lineH: CGFloat = 0
+        for s in subviews {
+            let sz = s.sizeThatFits(.unspecified)
+            if x > b.minX && x + sz.width > b.maxX { x = b.minX; y += lineH + lineSpacing; lineH = 0 }
+            s.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += sz.width + spacing; lineH = max(lineH, sz.height)
+        }
     }
 }
 
@@ -220,8 +328,9 @@ struct DownRow: View {
                 }.buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 7)
-        .contentShape(Rectangle())
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(T.stroke, lineWidth: 1))
         .onHover { hover = $0 }
         .help(h.error ?? "")
     }
@@ -278,8 +387,16 @@ struct PanelContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
-                Text("GPUs").font(.system(size: 11, weight: .bold)).foregroundColor(T.dim).tracking(0.5)
-                if model.offline { Text("· backend offline").font(.system(size: 10)).foregroundColor(T.red) }
+                Text("GPUs").font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(T.text)
+                if model.offline {
+                    Text("backend offline").font(.system(size: 10)).foregroundColor(T.red)
+                } else if let s = model.status {
+                    let gs = s.hosts.flatMap(\.gpus)
+                    let free = gs.reduce(0) { $0 + ($1.mem_total ?? 0) - ($1.mem_used ?? 0) }
+                    let idle = gs.filter { $0.procs.isEmpty }.count
+                    Text("\(gs.count) GPUs · \(gb0(free))G free" + (idle > 0 ? " · \(idle) idle" : ""))
+                        .font(.system(size: 10).monospacedDigit()).foregroundColor(T.faint)
+                }
                 Spacer()
                 if hover || adding || snapshot {
                     IconButton(icon: adding ? "xmark" : "plus") { adding.toggle() }.help("Add server")
@@ -299,8 +416,8 @@ struct PanelContent: View {
                     }
                 }
             }
-            .frame(height: 18)
-            .padding(.bottom, 4)
+            .frame(height: 20)
+            .padding(.bottom, 8)
 
             if adding { AddServer(model: model, shown: $adding) }
 
@@ -313,17 +430,32 @@ struct PanelContent: View {
                 let rows: [(Host, GPU?)] = s.hosts.flatMap { h in
                     h.ok == true && !h.gpus.isEmpty ? h.gpus.map { (h, Optional($0)) } : [(h, nil)]
                 }
-                ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
-                    if i > 0 { Rectangle().fill(T.stroke).frame(height: 1) }
-                    if let g = r.1 { GPURow(h: r.0, g: g, model: model) } else { DownRow(h: r.0, model: model) }
+                VStack(spacing: 7) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
+                        if let g = r.1 { GPURow(h: r.0, g: g, model: model) } else { DownRow(h: r.0, model: model) }
+                    }
                 }
-                if let b = s.best {
-                    Text("best now → \(b.host)\(rows.filter { $0.0.label == b.host }.count > 1 ? " gpu\(b.gpu)" : "") · \(gb0(b.free_mb))G free")
-                        .font(.system(size: 9.5)).foregroundColor(T.faint).padding(.top, 6)
+                if let b = s.best, let h = s.hosts.first(where: { $0.label == b.host }) {
+                    Button {
+                        copyToClipboard("ssh \(h.target) -t 'export CUDA_VISIBLE_DEVICES=\(b.gpu); exec $SHELL -l'")
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.up.right.circle.fill").foregroundColor(T.blue)
+                            Text("Best now").foregroundColor(T.dim)
+                            Text("\(b.host)\(h.gpus.count > 1 ? " · \(b.gpu)" : "")").fontWeight(.semibold).foregroundColor(T.text)
+                            Text("\(gb0(b.free_mb))G free").foregroundColor(T.faint)
+                            Spacer()
+                            Image(systemName: "doc.on.doc").foregroundColor(T.faint)
+                        }
+                        .font(.system(size: 10.5))
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Capsule().fill(T.blue.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain).padding(.top, 8).help("Copy ssh command with CUDA_VISIBLE_DEVICES set")
                 }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(10)
         .onHover { hover = $0 }
     }
 }
@@ -341,7 +473,7 @@ struct PanelView: View {
     @ObservedObject var model: Model
     var snapshot = false
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         let maxH = (NSScreen.main?.visibleFrame.height ?? 900) - 40
         let content = PanelContent(model: model, snapshot: snapshot)
             .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
@@ -353,6 +485,7 @@ struct PanelView: View {
         .background(ZStack {
             if !snapshot { Blur() }
             T.bg.opacity(snapshot ? 1 : 0.72)
+            LinearGradient(colors: [T.blue.opacity(0.07), .clear], startPoint: .topLeading, endPoint: .center)
         })
         .clipShape(shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))

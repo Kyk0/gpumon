@@ -82,6 +82,7 @@ def me_for(target):
 
 
 def start_poller(h):
+    state.setdefault(h["label"], {"label": h["label"], "target": h["target"], "ok": None, "gpus": [], "error": "connecting…"})
     ev = threading.Event()
     stops[h["label"]] = ev
     threading.Thread(target=poll, args=(h["label"], h["target"], ev), daemon=True).start()
@@ -96,7 +97,6 @@ def add_host(label, target):
             raise ValueError(f"'{label}' already exists")
         hosts.append(h)
         save_hosts()
-        state[label] = {"label": label, "target": target, "ok": None, "gpus": [], "error": "connecting…"}
         start_poller(h)
 
 
