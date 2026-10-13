@@ -19,7 +19,7 @@ No agents to install on the servers. It runs `nvidia-smi` over the SSH keys you 
 ## Install
 
 Requirements:
-- macOS 13+
+- macOS 14+
 - Xcode command line tools (`xcode-select --install`)
 - Python 3 (standard library only)
 - Passwordless SSH to each server: `ssh user@host` must work without a prompt.
