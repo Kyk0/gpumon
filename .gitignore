@@ -1,0 +1,4 @@
+hosts.json
+hosts.json.tmp
+__pycache__/
+.DS_Store

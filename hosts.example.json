@@ -1,0 +1,4 @@
+[
+  {"label": "box1", "target": "me@gpu-box-1.example.edu"},
+  {"label": "lab", "target": "my-ssh-config-alias"}
+]

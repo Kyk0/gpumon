@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Monitor</title>
+<style>
+:root {
+  --bg: #f4f5f7; --card: #ffffff; --fg: #15171a; --muted: #6b7280; --line: #e5e7eb;
+  --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --accent: #2563eb; --mine: #eef4ff;
+  --bar: #e9ebef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1013; --card: #171a1f; --fg: #e8eaed; --muted: #8b929c; --line: #262a31;
+    --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; --accent: #60a5fa; --mine: #16233a;
+    --bar: #23272e;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+.wrap { max-width: 1400px; margin: 0 auto; padding: 20px 16px 40px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; }
+.sub { color: var(--muted); font-size: 12px; }
+.best { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; display: flex; gap: 12px;
+  align-items: center; flex-wrap: wrap; }
+.best b { font-size: 16px; }
+code { font: 12px ui-monospace, "SF Mono", Menlo, monospace; background: var(--bar);
+  padding: 3px 7px; border-radius: 5px; cursor: pointer; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.card.stale { opacity: .6; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.host { font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+.stale .dot { background: var(--bad); }
+.meta { color: var(--muted); font-size: 12px; }
+.gpu { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.gname { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
+.row { display: grid; grid-template-columns: 52px 1fr 120px; align-items: center; gap: 10px; margin: 6px 0; font-size: 12px; }
+.row .lbl { color: var(--muted); }
+.row .val { text-align: right; font-variant-numeric: tabular-nums; }
+.bar { height: 10px; background: var(--bar); border-radius: 5px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 5px; transition: width .4s; }
+.chips { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin: 8px 0 4px; font-variant-numeric: tabular-nums; }
+svg.spark { width: 100%; height: 44px; display: block; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; table-layout: fixed; }
+th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+td { padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums; }
+tr.mine td { background: var(--mine); }
+tr.mine td:first-child { font-weight: 650; color: var(--accent); }
+.err { color: var(--bad); font-size: 12px; margin-top: 8px; }
+.legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 4px; background: currentColor; }
+.btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+  border-radius: 7px; padding: 5px 11px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.x { padding: 2px 9px; color: var(--bad); }
+header .btn { margin-left: auto; }
+.servers { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.servers h2 { font-size: 15px; margin: 0 0 4px; }
+.srow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.srow b { min-width: 90px; }
+.srow .meta { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+form.add { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+form.add input { font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--fg); min-width: 0; }
+form.add input[name=label] { width: 120px; }
+form.add input[name=target] { flex: 1; min-width: 200px; }
+#serr { color: var(--bad); font-size: 12px; margin-top: 6px; min-height: 1em; }
+@media (max-width: 480px) { .grid { grid-template-columns: 1fr; } .row { grid-template-columns: 44px 1fr 96px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>GPU Monitor</h1><span class="sub" id="upd">connecting…</span>
+    <button class="btn" onclick="toggleServers()">⚙ Servers</button></header>
+  <div class="servers" id="servers" hidden>
+    <h2>Servers</h2>
+    <div class="meta">Uses your SSH keys — the target must work with plain <code>ssh target</code> without a password prompt. An alias from ~/.ssh/config works too.</div>
+    <div id="slist"></div>
+    <form class="add" onsubmit="addServer(event)">
+      <input name="label" placeholder="name (e.g. adder)" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,31}">
+      <input name="target" placeholder="ssh target (user@host or alias)" required>
+      <button class="btn primary">Add server</button>
+    </form>
+    <div id="serr"></div>
+  </div>
+  <div class="best" id="best" hidden></div>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const gb = mb => (mb / 1024).toFixed(1);
+const color = p => p >= 90 ? 'var(--bad)' : p >= 60 ? 'var(--warn)' : 'var(--ok)';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let last = { hosts: [] };
+
+function dur(s) {
+  if (s == null) return '';
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function shortCmd(c) {
+  // drop interpreter path, keep the script + args
+  const parts = (c || '').split(/\s+/);
+  if (parts.length > 1 && /python|torchrun|accelerate/.test(parts[0])) parts[0] = parts[0].split('/').pop();
+  return parts.join(' ');
+}
+
+function bar(pct) {
+  return `<div class="bar"><i style="width:${Math.min(100, pct || 0)}%;background:${color(pct || 0)}"></i></div>`;
+}
+
+function spark(hist, total) {
+  if (!hist || hist.length < 2) return '';
+  const W = 300, H = 44, n = hist.length, t0 = hist[0][0], t1 = hist[n - 1][0] || t0 + 1;
+  const x = t => ((t - t0) / Math.max(1, t1 - t0) * W).toFixed(1);
+  const y = v => (H - 2 - (v / 100) * (H - 4)).toFixed(1);
+  const util = hist.map(p => `${x(p[0])},${y(p[1] ?? 0)}`).join(' ');
+  const mem = hist.map(p => `${x(p[0])},${y(total ? (p[2] ?? 0) / total * 100 : 0)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <polyline points="${mem}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke" opacity=".8"/>
+    <polyline points="${util}" fill="none" stroke="var(--warn)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+  </svg>
+  <div class="legend"><span style="color:var(--warn)">util</span><span style="color:var(--accent)">vram</span><span>last ${Math.max(1, Math.round((t1 - t0) / 60))} min</span></div>`;
+}
+
+function card(h) {
+  const s = h.sys || {};
+  const age = h.updated ? Math.round(Date.now() / 1000 - h.updated) : null;
+  const meta = [
+    s.load ? `load ${s.load[0].toFixed(1)} / ${s.cpus} cpu` : '',
+    s.ram_total ? `RAM ${gb(s.ram_total - s.ram_avail)}/${gb(s.ram_total)} GB` : '',
+  ].filter(Boolean).join(' · ');
+  const gpus = (h.gpus || []).map(g => {
+    const memPct = g.mem_total ? g.mem_used / g.mem_total * 100 : 0;
+    const procs = g.procs.length ? `<table>
+      <colgroup><col style="width:24%"><col style="width:17%"><col style="width:15%"><col></colgroup>
+      <tr><th>user</th><th>VRAM</th><th>time</th><th>command</th></tr>
+      ${g.procs.map(p => `<tr class="${p.mine ? 'mine' : ''}" title="${esc(p.cmd)}">
+        <td>${esc(p.user)}${p.mine ? ' ★' : ''}</td><td>${gb(p.mem)} GB</td><td>${dur(p.elapsed)}</td>
+        <td>${esc(shortCmd(p.cmd))}</td></tr>`).join('')}
+    </table>` : `<div class="meta" style="margin-top:8px">no processes — GPU is free</div>`;
+    return `<div class="gpu">
+      <div class="gname"><b>GPU ${g.index} · ${esc(g.name)}</b><span class="meta">${gb(g.mem_total - g.mem_used)} GB free</span></div>
+      <div class="row"><span class="lbl">util</span>${bar(g.util)}<span class="val">${g.util ?? '–'}%</span></div>
+      <div class="row"><span class="lbl">vram</span>${bar(memPct)}<span class="val">${gb(g.mem_used)} / ${gb(g.mem_total)} GB</span></div>
+      <div class="chips"><span>${g.temp ?? '–'}°C</span><span>${g.power != null ? Math.round(g.power) : '–'} / ${g.power_limit != null ? Math.round(g.power_limit) : '–'} W</span><span>${g.procs.length} proc</span></div>
+      ${spark(g.history, g.mem_total)}
+      ${procs}
+    </div>`;
+  }).join('');
+  return `<div class="card ${h.ok ? '' : 'stale'}">
+    <div class="top"><div class="host"><span class="dot"></span>${esc(h.label)}</div>
+      <code onclick="copy(this)" title="click to copy">${esc('ssh ' + h.target)}</code></div>
+    <div class="meta">${esc(h.target)}${meta ? ' · ' + meta : ''}${age != null && age > 15 ? ` · ${age}s ago` : ''}</div>
+    ${h.error ? `<div class="err">⚠ ${esc(h.error)}</div>` : ''}
+    ${gpus}
+  </div>`;
+}
+
+function toggleServers() { $('#servers').hidden = !$('#servers').hidden; }
+
+function renderServers() {
+  const list = last.hosts.map(h => `<div class="srow"><span class="dot" style="background:${h.ok ? 'var(--ok)' : h.ok === false ? 'var(--bad)' : 'var(--warn)'}"></span>
+    <b>${esc(h.label)}</b><span class="meta">${esc(h.target)}${h.error ? ' · ' + esc(h.error) : ''}</span>
+    <button class="btn x" onclick="removeServer('${esc(h.label)}')">Remove</button></div>`).join('');
+  const html = list || '<div class="meta" style="padding:8px 0">No servers yet — add one below.</div>';
+  if ($('#slist').innerHTML !== html) $('#slist').innerHTML = html;
+}
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'X-GPUMon': '1' },
+    body: body && JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function addServer(e) {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('POST', '/api/hosts', { label: f.label.value.trim(), target: f.target.value.trim() });
+    f.reset(); $('#serr').textContent = ''; tick();
+  } catch (err) { $('#serr').textContent = err.message; }
+}
+
+async function removeServer(label) {
+  if (!confirm(`Remove ${label} from the monitor?`)) return;
+  try { await api('DELETE', '/api/hosts/' + encodeURIComponent(label)); tick(); }
+  catch (err) { $('#serr').textContent = err.message; }
+}
+
+function copy(el) {
+  navigator.clipboard?.writeText(el.textContent).then(() => {
+    const t = el.textContent; el.textContent = 'copied ✓'; setTimeout(() => el.textContent = t, 900);
+  }).catch(() => {});
+}
+
+async function tick() {
+  try {
+    const d = await (await fetch('/api/status', { cache: 'no-store' })).json();
+    $('#grid').innerHTML = d.hosts.map(card).join('');
+    last = d;
+    renderServers();
+    if (!d.hosts.length) $('#servers').hidden = false;
+    const b = d.best;
+    $('#best').hidden = !b;
+    if (b) {
+      const t = (d.hosts.find(h => h.label === b.host) || {}).target || b.host;
+      const cmd = `ssh ${t}  # then: CUDA_VISIBLE_DEVICES=${b.gpu} python ...`;
+      $('#best').hidden = false;
+      $('#best').innerHTML = `<span>Best place to launch now:</span><b>${esc(b.host)} · GPU ${b.gpu}</b>
+        <span class="meta">${gb(b.free_mb)} GB free · ${b.util}% util</span>
+        <code onclick="copy(this)" title="click to copy">${esc(cmd)}</code>`;
+    }
+    $('#upd').textContent = `updated ${new Date().toLocaleTimeString()} · every ${d.interval}s`;
+  } catch (e) {
+    $('#upd').textContent = 'backend not reachable — is gpumon.py running?';
+  }
+}
+if (location.hash === '#servers') $('#servers').hidden = false;
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>
