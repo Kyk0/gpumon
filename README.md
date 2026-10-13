@@ -12,8 +12,8 @@ No agents to install on the servers. It runs `nvidia-smi` over the SSH keys you 
 - **A card per GPU**: a load ring, a 15-minute load/VRAM graph, a VRAM bar split by user, temperature, power, and the server's CPU and RAM.
 - **Who's on it**: each user's VRAM and how long they've been running. Your jobs are shown in blue. Click a card to see every process with its command.
 - **Best now**: the GPU with the most free VRAM. Click it to copy an `ssh … CUDA_VISIBLE_DEVICES=N` command.
-- **Add or remove servers** in the widget: hover, then **+**. To remove one, hover its row and click **✕** twice.
-- **Lives on the desktop** under your windows, like a widget. The **⋯** menu (on hover) switches to a normal window or always-on-top.
+- **Settings** button (top right): add or remove servers, choose where the widget lives (desktop / window / on top), and set its height. No config files.
+- **Scrolls**: the header and stats stay put while the GPU cards scroll, and the height always fits your screen.
 - There's also a full web dashboard with history graphs at <http://localhost:8765>.
 
 ## Install
@@ -31,7 +31,7 @@ cd gpumon
 ```
 
 This puts **GPU Monitor** in `/Applications` and starts it at login. Drag the widget anywhere; it remembers its position.
-Hover the widget, click **+**, and add a server with a name and an ssh target (`user@host` or an alias from `~/.ssh/config`).
+Click **Settings** and add a server with a name and an ssh target (`user@host` or an alias from `~/.ssh/config`).
 
 Servers are saved in `hosts.json` (git-ignored; see `hosts.example.json`).
 

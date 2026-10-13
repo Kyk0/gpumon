@@ -34,7 +34,19 @@ enum PanelMode: String, CaseIterable, Identifiable {
     var title: String { ["desktop": "On Desktop (widget)", "normal": "Normal Window", "top": "Always on Top"][rawValue]! }
 }
 
+enum PanelHeight: String, CaseIterable, Identifiable {
+    case compact, medium, tall, screen
+    var id: String { rawValue }
+    var title: String { ["compact": "Compact", "medium": "Medium", "tall": "Tall", "screen": "Fit Screen"][rawValue]! }
+    var points: CGFloat? { ["compact": 460, "medium": 640, "tall": 840][rawValue] }
+}
+
 final class Model: ObservableObject {
+    @Published var settings = false
+    @Published var room: CGFloat = 800   // space between the window's top edge and the bottom of the screen
+    @Published var maxHeight: PanelHeight = PanelHeight(rawValue: UserDefaults.standard.string(forKey: "panelHeight") ?? "") ?? .medium {
+        didSet { UserDefaults.standard.set(maxHeight.rawValue, forKey: "panelHeight") }
+    }
     @Published var status: Status?
     @Published var offline = false
     @Published var updated: Date?
@@ -250,7 +262,6 @@ struct GPURow: View {
     let h: Host; let g: GPU
     @ObservedObject var model: Model
     @State private var hover = false
-    @State private var confirming = false
     @State private var expanded = false
 
     var users: [UserUse] {
@@ -291,14 +302,6 @@ struct GPURow: View {
                     Text(sysLine).font(.system(size: 9.5).monospacedDigit()).foregroundColor(T.faint).lineLimit(1)
                 }
                 Spacer(minLength: 2)
-                if hover && g.index == h.gpus.first?.index {
-                    Button {
-                        if confirming { model.send("DELETE", "api/hosts/\(h.label)") { _ in } } else { confirming = true }
-                    } label: {
-                        Text(confirming ? "remove?" : "✕").font(.system(size: 9.5, weight: .semibold))
-                            .foregroundColor(confirming ? T.red : T.faint)
-                    }.buttonStyle(.plain).help("Remove server")
-                }
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundColor(T.faint)
                     .rotationEffect(.degrees(expanded ? 180 : 0))
             }
@@ -355,7 +358,7 @@ struct GPURow: View {
             LinearGradient(colors: [Color.white.opacity(0.13), Color.white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.spring(duration: 0.3)) { expanded.toggle() } }
-        .onHover { hover = $0; if !$0 { confirming = false } }
+        .onHover { hover = $0 }
     }
 
     func short(_ n: String) -> String {
@@ -441,58 +444,152 @@ struct Summary: View {
 struct DownRow: View {
     let h: Host
     @ObservedObject var model: Model
-    @State private var hover = false
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(h.ok == nil ? T.amber : T.red).frame(width: 6, height: 6)
             Text(h.label).font(.system(size: 12, weight: .semibold)).foregroundColor(T.text)
             Text(h.ok == nil ? "connecting…" : "offline").font(.system(size: 10)).foregroundColor(T.faint)
             Spacer()
-            if hover {
-                Button { model.send("DELETE", "api/hosts/\(h.label)") { _ in } } label: {
-                    Text("remove").font(.system(size: 9.5, weight: .semibold)).foregroundColor(T.red)
-                }.buttonStyle(.plain)
-            }
         }
         .padding(11)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.045)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(T.stroke, lineWidth: 1))
-        .onHover { hover = $0 }
         .help(h.error ?? "")
     }
 }
 
-// MARK: - Add server
+// MARK: - Settings (inside the widget)
 
-struct AddServer: View {
+struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased()).font(.system(size: 9, weight: .bold)).foregroundColor(T.faint).tracking(0.6)
+            content
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(T.stroke, lineWidth: 1))
+    }
+}
+
+struct ServerSettingsRow: View {
+    let h: Host
     @ObservedObject var model: Model
-    @Binding var shown: Bool
+    @State private var confirming = false
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle().fill(h.ok == true ? T.green : h.ok == false ? T.red : T.amber).frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(h.label).font(.system(size: 12, weight: .semibold)).foregroundColor(T.text)
+                Text(h.ok == false ? (h.error ?? "offline") : h.target).font(.system(size: 9.5))
+                    .foregroundColor(h.ok == false ? T.red : T.faint).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if confirming {
+                Button("Cancel") { confirming = false }.buttonStyle(.plain).font(.system(size: 10)).foregroundColor(T.dim)
+            }
+            Button {
+                if confirming { model.send("DELETE", "api/hosts/\(h.label)") { _ in } } else { confirming = true }
+            } label: {
+                Group {
+                    if confirming { Text("Remove").font(.system(size: 10, weight: .semibold)) }
+                    else { Image(systemName: "trash").font(.system(size: 10, weight: .semibold)) }
+                }
+                .foregroundColor(confirming ? .white : T.dim)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(Capsule().fill(confirming ? T.red : Color.white.opacity(0.07)))
+            }
+            .buttonStyle(.plain).help("Remove \(h.label)")
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var model: Model
     @State private var label = ""
     @State private var target = ""
     @State private var error: String?
+    @State private var busy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                TextField("name", text: $label).frame(width: 64)
-                TextField("user@host", text: $target).onSubmit(add)
-                IconButton(icon: "return", action: add)
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsSection(title: "Servers") {
+                let hosts = model.status?.hosts ?? []
+                if hosts.isEmpty { Text("No servers yet.").font(.system(size: 11)).foregroundColor(T.dim) }
+                ForEach(hosts) { h in
+                    ServerSettingsRow(h: h, model: model)
+                    if h.id != hosts.last?.id { Rectangle().fill(T.stroke).frame(height: 1) }
+                }
             }
-            .textFieldStyle(.plain)
-            .font(.system(size: 11))
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
-            if let error { Text(error).font(.system(size: 10)).foregroundColor(T.red) }
+
+            SettingsSection(title: "Add server") {
+                field("Name", "e.g. adder", $label)
+                field("SSH", "user@host or ~/.ssh/config alias", $target)
+                Text("The server must accept `ssh` with your key, without asking for a password.")
+                    .font(.system(size: 9.5)).foregroundColor(T.faint).fixedSize(horizontal: false, vertical: true)
+                if let error { Text(error).font(.system(size: 10)).foregroundColor(T.red) }
+                HStack {
+                    Spacer()
+                    Button(action: add) {
+                        Text(busy ? "Adding…" : "Add server").font(.system(size: 11, weight: .semibold)).foregroundColor(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(Capsule().fill(T.blue.opacity(label.isEmpty || target.isEmpty ? 0.4 : 1)))
+                    }
+                    .buttonStyle(.plain).disabled(busy || label.isEmpty || target.isEmpty)
+                }
+            }
+
+            SettingsSection(title: "Widget") {
+                HStack {
+                    Text("Position").font(.system(size: 11)).foregroundColor(T.dim).frame(width: 56, alignment: .leading)
+                    Picker("", selection: $model.mode) {
+                        Text("Desktop").tag(PanelMode.desktop); Text("Window").tag(PanelMode.normal); Text("On top").tag(PanelMode.top)
+                    }.pickerStyle(.segmented).labelsHidden()
+                }
+                HStack {
+                    Text("Height").font(.system(size: 11)).foregroundColor(T.dim).frame(width: 56, alignment: .leading)
+                    Picker("", selection: $model.maxHeight) {
+                        Text("S").tag(PanelHeight.compact); Text("M").tag(PanelHeight.medium)
+                        Text("L").tag(PanelHeight.tall); Text("Fit").tag(PanelHeight.screen)
+                    }.pickerStyle(.segmented).labelsHidden()
+                }
+            }
+
+            HStack {
+                Button { NSWorkspace.shared.open(dashboard) } label: {
+                    Label("Web dashboard", systemImage: "safari").font(.system(size: 10.5)).foregroundColor(T.dim)
+                }.buttonStyle(.plain)
+                Spacer()
+                Button { NSApp.terminate(nil) } label: {
+                    Label("Quit", systemImage: "power").font(.system(size: 10.5)).foregroundColor(T.dim)
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 4).padding(.top, 2)
         }
-        .padding(.bottom, 4)
+    }
+
+    func field(_ name: String, _ hint: String, _ text: Binding<String>) -> some View {
+        HStack(spacing: 6) {
+            Text(name).font(.system(size: 11)).foregroundColor(T.dim).frame(width: 38, alignment: .leading)
+            TextField(hint, text: text).textFieldStyle(.plain).font(.system(size: 11.5)).foregroundColor(T.text)
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.black.opacity(0.25)))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(T.stroke, lineWidth: 1))
+                .onSubmit(add)
+        }
     }
 
     func add() {
-        guard !label.isEmpty, !target.isEmpty else { return }
-        error = nil
+        guard !label.isEmpty, !target.isEmpty, !busy else { return }
+        busy = true; error = nil
         model.send("POST", "api/hosts", ["label": label.trimmingCharacters(in: .whitespaces),
                                          "target": target.trimmingCharacters(in: .whitespaces)]) { err in
-            if let err { error = err } else { shown = false }
+            busy = false
+            if let err { error = err } else { label = ""; target = "" }
         }
     }
 }
@@ -504,11 +601,15 @@ struct HeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
-struct PanelContent: View {
+struct HeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+// Fixed top: title, buttons, add-server form, cluster stats.
+struct PanelHeader: View {
     @ObservedObject var model: Model
     var snapshot = false
-    @State private var adding = false
-    @State private var hover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -519,35 +620,41 @@ struct PanelContent: View {
                 Text(model.offline ? "offline" : (model.updated.map { DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .medium) } ?? "…"))
                     .font(.system(size: 9.5).monospacedDigit()).foregroundColor(model.offline ? T.red : T.faint)
                 Spacer()
-                if hover || adding || snapshot {
-                    IconButton(icon: adding ? "xmark" : "plus") { adding.toggle() }.help("Add server")
-                    if !snapshot {
-                        Menu {
-                            Picker("Position", selection: $model.mode) {
-                                ForEach(PanelMode.allCases) { Text($0.title).tag($0) }
-                            }
-                            Divider()
-                            Button("Open Web Dashboard") { NSWorkspace.shared.open(dashboard) }
-                            Button("Quit GPU Monitor") { NSApp.terminate(nil) }
-                        } label: {
-                            Image(systemName: "ellipsis").font(.system(size: 10, weight: .semibold)).foregroundColor(T.faint)
-                                .frame(width: 18, height: 18)
-                        }
-                        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                Button { withAnimation(.easeOut(duration: 0.2)) { model.settings.toggle() } } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: model.settings ? "checkmark" : "gearshape.fill").font(.system(size: 10, weight: .semibold))
+                        Text(model.settings ? "Done" : "Settings").font(.system(size: 10.5, weight: .semibold))
                     }
+                    .foregroundColor(model.settings ? .white : T.dim)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(Capsule().fill(model.settings ? T.blue : Color.white.opacity(0.08)))
                 }
+                .buttonStyle(.plain).help("Servers, position, size")
             }
             .frame(height: 20)
             .padding(.bottom, 8)
 
-            if adding { AddServer(model: model, shown: $adding) }
+            if !model.settings, let s = model.status, !s.hosts.isEmpty { Summary(s: s) }
+        }
+        .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 8)
+    }
+}
 
-            if let s = model.status, !s.hosts.isEmpty { Summary(s: s).padding(.bottom, 8) }
+// Scrolling part: one card per GPU, then the "best now" pill.
+struct PanelBody: View {
+    @ObservedObject var model: Model
 
-            if let s = model.status {
-                if s.hosts.isEmpty && !adding {
-                    Button { adding = true } label: {
-                        Text("+ add a server").font(.system(size: 11)).foregroundColor(T.dim).padding(.vertical, 8)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if model.settings {
+                SettingsView(model: model)
+            } else if let s = model.status {
+                if s.hosts.isEmpty {
+                    Button { model.settings = true } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: "server.rack").font(.system(size: 20))
+                            Text("No servers yet — tap to add one").font(.system(size: 11, weight: .medium))
+                        }.foregroundColor(T.dim).frame(maxWidth: .infinity).padding(24)
                     }.buttonStyle(.plain)
                 }
                 let rows: [(Host, GPU?)] = s.hosts.flatMap { h in
@@ -578,8 +685,7 @@ struct PanelContent: View {
                 }
             }
         }
-        .padding(10)
-        .onHover { hover = $0 }
+        .padding(.horizontal, 10).padding(.bottom, 10)
     }
 }
 
@@ -595,16 +701,34 @@ struct Blur: NSViewRepresentable {
 struct PanelView: View {
     @ObservedObject var model: Model
     var snapshot = false
+    @State private var headerH: CGFloat = 0
+    @State private var bodyH: CGFloat = 0
+
+    // Tallest the window may get: the chosen height, but never past the bottom of the screen.
+    var cap: CGFloat { max(260, min(model.maxHeight.points ?? .infinity, model.room)) }
+    var scrollH: CGFloat { max(0, min(bodyH, cap - headerH)) }
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
-        let maxH = (NSScreen.main?.visibleFrame.height ?? 900) - 40
-        let content = PanelContent(model: model, snapshot: snapshot)
-            .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
-        Group {
-            if snapshot { content } else { ScrollView(showsIndicators: false) { content } }
+        VStack(spacing: 0) {
+            PanelHeader(model: model, snapshot: snapshot)
+                .background(GeometryReader { Color.clear.preference(key: HeaderHeightKey.self, value: $0.size.height) })
+            if snapshot {
+                PanelBody(model: model)
+            } else {
+                ScrollView(.vertical, showsIndicators: bodyH > scrollH + 1) {
+                    PanelBody(model: model)
+                        .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
+                }
+                .frame(height: scrollH)
+                .mask(LinearGradient(stops: bodyH > scrollH + 1
+                    ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.03),
+                       .init(color: .black, location: 0.93), .init(color: .clear, location: 1)]
+                    : [.init(color: .black, location: 0), .init(color: .black, location: 1)],
+                    startPoint: .top, endPoint: .bottom))
+            }
         }
-        .frame(width: panelWidth)
-        .frame(maxHeight: snapshot ? nil : maxH)
+        .frame(width: panelWidth, alignment: .top)
         .background(ZStack {
             if !snapshot { Blur() }
             T.bg.opacity(snapshot ? 1 : 0.72)
@@ -613,8 +737,12 @@ struct PanelView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
         .environment(\.colorScheme, .dark)
-        .onPreferenceChange(HeightKey.self) { h in model.onHeight?(min(h, maxH)) }
+        .onPreferenceChange(HeaderHeightKey.self) { headerH = $0; report() }
+        .onPreferenceChange(HeightKey.self) { bodyH = $0; report() }
+        .onChange(of: cap) { report() }
     }
+
+    func report() { if headerH > 0 { model.onHeight?(headerH + scrollH) } }
 }
 
 // MARK: - App icon
@@ -668,9 +796,32 @@ final class App: NSObject, NSApplicationDelegate {
         model.onMode = { [weak self] in self?.apply($0) }
         model.onHeight = { [weak self] h in self?.resize(height: h) }
         apply(model.mode)
+        updateRoom()
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: win, queue: .main) { [weak self] _ in self?.updateRoom() }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in self?.updateRoom() }
         win.orderFrontRegardless()
         model.refresh()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.model.refresh() }
+        // GPUMON_SELFTEST=out.png: capture the live window after it settles, print its geometry, exit.
+        if let out = ProcessInfo.processInfo.environment["GPUMON_SELFTEST"] {
+            model.settings = ProcessInfo.processInfo.environment["GPUMON_SELFTEST_SETTINGS"] != nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [self] in
+                let v = win.contentView!
+                if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+                }
+                print("frame", win.frame, "room", model.room)
+                func scrolls(_ v: NSView) -> [NSScrollView] { (v as? NSScrollView).map { [$0] } ?? v.subviews.flatMap(scrolls) }
+                for sv in scrolls(v) { print("scroll visible", sv.contentView.bounds.height, "document", sv.documentView?.frame.height ?? 0) }
+                exit(0)
+            }
+        }
+    }
+
+    func updateRoom() {
+        guard let scr = (win.screen ?? NSScreen.main)?.visibleFrame else { return }
+        model.room = win.frame.maxY - scr.minY - 12
     }
 
     // Grow/shrink with content while keeping the top edge where the user put it.
