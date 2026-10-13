@@ -4,13 +4,14 @@
 
 <p align="center">A tiny macOS desktop widget showing every GPU on your SSH servers:<br>load, VRAM, and who's using it.</p>
 
-<p align="center"><img src="docs/screenshot.png" width="280" alt="GPU Monitor widget"></p>
+<p align="center"><img src="docs/screenshot.png" width="330" alt="GPU Monitor widget"></p>
 
 No agents to install on the servers. It runs `nvidia-smi` over the SSH keys you already have, every 5 seconds.
 
-- **One line per GPU**: utilization, VRAM used/total, and a list of users with their VRAM. Your own processes are shown in blue.
-- **Hover a row** to see the GPU model, temperature, power, and each process's command and runtime.
-- **Best now**: the GPU with the most free VRAM, so you know where to launch.
+- **Cluster at a glance**: average load, free VRAM, idle GPUs, and how many jobs you're running.
+- **A card per GPU**: a load ring, a 15-minute load/VRAM graph, a VRAM bar split by user, temperature, power, and the server's CPU and RAM.
+- **Who's on it**: each user's VRAM and how long they've been running. Your jobs are shown in blue. Click a card to see every process with its command.
+- **Best now**: the GPU with the most free VRAM. Click it to copy an `ssh … CUDA_VISIBLE_DEVICES=N` command.
 - **Add or remove servers** in the widget: hover, then **+**. To remove one, hover its row and click **✕** twice.
 - **Lives on the desktop** under your windows, like a widget. The **⋯** menu (on hover) switches to a normal window or always-on-top.
 - There's also a full web dashboard with history graphs at <http://localhost:8765>.
