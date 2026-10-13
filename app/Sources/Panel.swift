@@ -124,8 +124,9 @@ struct PanelView: View {
             if snapshot {
                 PanelBody(model: model)
             } else {
-                ScrollView(.vertical, showsIndicators: bodyH > scrollH + 1) {
+                ScrollView(.vertical, showsIndicators: false) {
                     PanelBody(model: model)
+                        .frame(width: panelWidth)
                         .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
                 }
                 .frame(height: scrollH)
@@ -145,8 +146,12 @@ struct PanelView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
         .environment(\.colorScheme, .dark)
-        .onPreferenceChange(HeaderHeightKey.self) { headerH = $0; report() }
-        .onPreferenceChange(HeightKey.self) { bodyH = $0; report() }
+        .onPreferenceChange(HeaderHeightKey.self) { h in
+            if abs(h - headerH) >= 1 { headerH = h.rounded(.up); report() }
+        }
+        .onPreferenceChange(HeightKey.self) { h in
+            if abs(h - bodyH) >= 1 { bodyH = h.rounded(.up); report() }
+        }
         .onChange(of: cap) { report() }
     }
 

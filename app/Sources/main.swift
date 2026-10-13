@@ -58,16 +58,29 @@ final class App: NSObject, NSApplicationDelegate {
 
     func updateRoom() {
         guard let scr = (win.screen ?? NSScreen.main)?.visibleFrame else { return }
-        model.room = win.frame.maxY - scr.minY - 12
+        let room = (win.frame.maxY - scr.minY - 12).rounded()
+        if abs(room - model.room) >= 1 { model.room = room }
     }
 
     // Grow/shrink with content while keeping the top edge where the user put it.
+    // Resizing from inside a SwiftUI layout pass can re-trigger layout, so coalesce requests and apply
+    // them once on the next run-loop turn, ignoring sub-2pt jitter.
+    var pendingHeight: CGFloat?
     func resize(height: CGFloat) {
-        var f = win.frame
-        guard height > 0, abs(f.height - height) > 0.5 else { return }
-        f.origin.y += f.height - height
-        f.size = NSSize(width: panelWidth, height: height)
-        win.setFrame(f, display: true, animate: false)
+        let h = height.rounded(.up)
+        guard h > 0 else { return }
+        let scheduled = pendingHeight != nil
+        pendingHeight = h
+        if scheduled { return }
+        DispatchQueue.main.async { [self] in
+            guard let h = pendingHeight else { return }
+            pendingHeight = nil
+            var f = win.frame
+            guard abs(f.height - h) >= 2 else { return }
+            f.origin.y += f.height - h
+            f.size = NSSize(width: panelWidth, height: h)
+            win.setFrame(f, display: true, animate: false)
+        }
     }
 
     func apply(_ mode: PanelMode) {
