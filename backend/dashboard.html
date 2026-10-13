@@ -85,7 +85,7 @@ form.add input[name=target] { flex: 1; min-width: 200px; }
     <div class="meta">Uses your SSH keys — the target must work with plain <code>ssh target</code> without a password prompt. An alias from ~/.ssh/config works too.</div>
     <div id="slist"></div>
     <form class="add" onsubmit="addServer(event)">
-      <input name="label" placeholder="name (e.g. adder)" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,31}">
+      <input name="label" placeholder="name (e.g. gpu-box)" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,31}">
       <input name="target" placeholder="ssh target (user@host or alias)" required>
       <button class="btn primary">Add server</button>
     </form>

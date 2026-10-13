@@ -13,9 +13,9 @@ PORT = 8765
 INTERVAL = 5          # seconds between polls
 HISTORY = 180         # points kept per GPU (15 min at 5 s)
 HERE = os.path.dirname(os.path.abspath(__file__))
-HOSTS_FILE = os.environ.get("GPUMON_HOSTS", os.path.join(HERE, "hosts.json"))
+HOSTS_FILE = os.environ.get("GPUMON_HOSTS", os.path.expanduser("~/.config/gpumon/hosts.json"))
 
-# Host entries: {"label": "adder", "target": "user@adder.example.edu"}.
+# Host entries: {"label": "box1", "target": "user@box1.example.edu"}.
 # target is anything `ssh` accepts as a destination, including ~/.ssh/config aliases.
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 TARGET_RE = re.compile(r"^([A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -56,6 +56,7 @@ def load_hosts():
 
 
 def save_hosts():
+    os.makedirs(os.path.dirname(HOSTS_FILE), exist_ok=True)
     tmp = HOSTS_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(hosts, f, indent=2)
@@ -251,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/status"):
             body, ctype = json.dumps(snapshot()).encode(), "application/json"
         elif self.path in ("/", "/index.html"):
-            with open(os.path.join(HERE, "index.html"), "rb") as f:
+            with open(os.path.join(HERE, "dashboard.html"), "rb") as f:
                 body, ctype = f.read(), "text/html; charset=utf-8"
         else:
             self.send_error(404)

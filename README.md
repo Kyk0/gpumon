@@ -2,27 +2,38 @@
 
 <h1 align="center">GPU Monitor</h1>
 
-<p align="center">A tiny macOS desktop widget showing every GPU on your SSH servers:<br>load, VRAM, and who's using it.</p>
+<p align="center">
+A macOS desktop widget that shows every GPU on your SSH servers:<br>
+load, VRAM, and who's using it, at a glance.
+</p>
+
+<p align="center">
+<a href="https://github.com/Kyk0/gpumon/actions/workflows/build.yml"><img src="https://github.com/Kyk0/gpumon/actions/workflows/build.yml/badge.svg" alt="build"></a>
+<img src="https://img.shields.io/badge/macOS-14%2B-black" alt="macOS 14+">
+<img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+</p>
 
 <p align="center"><img src="docs/screenshot.png" width="330" alt="GPU Monitor widget"></p>
 
-No agents to install on the servers. It runs `nvidia-smi` over the SSH keys you already have, every 5 seconds.
+Shared lab servers, one H100, five people. Stop running `ssh … nvidia-smi` in three terminals to find a free GPU.
+GPU Monitor sits on your desktop and keeps all of it in view. Nothing is installed on the servers: it runs `nvidia-smi` over the SSH keys you already have.
 
-- **Cluster at a glance**: average load, free VRAM, idle GPUs, and how many jobs you're running.
-- **A card per GPU**: a load ring, a 15-minute load/VRAM graph, a VRAM bar split by user, temperature, power, and the server's CPU and RAM.
-- **Who's on it**: each user's VRAM and how long they've been running. Your jobs are shown in blue. Click a card to see every process with its command.
-- **Best now**: the GPU with the most free VRAM. Click it to copy an `ssh … CUDA_VISIBLE_DEVICES=N` command.
-- **Settings** button (top right): add or remove servers, choose where the widget lives (desktop / window / on top), and set its height. No config files.
-- **Scrolls**: the header and stats stay put while the GPU cards scroll, and the height always fits your screen.
-- There's also a full web dashboard with history graphs at <http://localhost:8765>.
+## Features
+
+- **Cluster at a glance**: average load, free VRAM, idle GPUs, and how many jobs are yours.
+- **A card per GPU**: a load ring, a 15-minute load/VRAM graph, temperature, power, and the server's CPU and RAM.
+- **Who's using it**: the VRAM bar is split by user, with each user's memory and runtime. Your jobs are in blue. Click a card to see every process and its command.
+- **Best now**: the GPU with the most free VRAM. Click it to copy `ssh … CUDA_VISIBLE_DEVICES=N`.
+- **Settings in the widget**: add or remove servers, pin it to the desktop / a normal window / always on top, and pick its height.
+- **Web dashboard** with history at <http://localhost:8765>, if you prefer a browser tab.
 
 ## Install
 
-Requirements:
+You need:
 - macOS 14+
 - Xcode command line tools (`xcode-select --install`)
 - Python 3 (standard library only)
-- Passwordless SSH to each server: `ssh user@host` must work without a prompt.
+- passwordless SSH to each server (`ssh user@host` works without a prompt)
 
 ```bash
 git clone https://github.com/Kyk0/gpumon.git
@@ -30,20 +41,31 @@ cd gpumon
 ./install.sh
 ```
 
-This puts **GPU Monitor** in `/Applications` and starts it at login. Drag the widget anywhere; it remembers its position.
-Click **Settings** and add a server with a name and an ssh target (`user@host` or an alias from `~/.ssh/config`).
+**GPU Monitor** lands in `/Applications` and starts at login. Click **Settings** in the widget to add servers by name and ssh target (`user@host` or an alias from `~/.ssh/config`).
 
-Servers are saved in `hosts.json` (git-ignored; see `hosts.example.json`).
-
-## Update / uninstall
-
-```bash
-git pull && ./install.sh   # rebuild and restart
-./uninstall.sh             # remove app + login items (keeps hosts.json)
-```
-
-Logs: `/tmp/local.gpumon.*.log`.
+To update, run `git pull && ./install.sh`. To remove, run `./uninstall.sh`. Your server list is kept in `~/.config/gpumon/hosts.json`.
 
 ## How it works
 
-`gpumon.py` is a small stdlib-only Python service. It keeps one multiplexed SSH connection per server (`ControlMaster`). Every 5 seconds it runs `nvidia-smi` plus `ps` to map each process to its user, and serves the results as JSON on `127.0.0.1:8765`. The SwiftUI app (`GPUMonitor.swift`, compiled with `swiftc`, no Xcode project needed) reads that JSON and draws the widget.
+```
+┌──────────────── your Mac ────────────────┐           ┌──── servers ────┐
+│ GPU Monitor.app ──► backend/gpumon.py ───┼── ssh ───►│ nvidia-smi, ps  │
+│ (SwiftUI widget)    127.0.0.1:8765        │  every 5s │                 │
+└──────────────────────────────────────────┘           └─────────────────┘
+```
+
+- `backend/gpumon.py` is stdlib-only Python. It keeps one multiplexed SSH connection per server (`ControlMaster`), runs `nvidia-smi` and `ps` to map processes to users, and serves JSON plus the web dashboard on localhost.
+- `app/Sources/` holds the SwiftUI widget. It's built with plain `swiftc`, no Xcode project needed.
+- `install.sh` builds the app, renders its icon, and registers two launch agents. Logs go to `/tmp/local.gpumon.*.log`.
+
+```
+app/Sources/      SwiftUI widget (main, Model, Panel, Cards, Settings, Theme, Icon)
+backend/          gpumon.py + dashboard.html
+docs/             screenshot, icon, demo data used for the screenshot
+install.sh        build + install + autostart
+uninstall.sh
+```
+
+## License
+
+MIT

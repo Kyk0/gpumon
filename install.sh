@@ -2,7 +2,11 @@
 # Build "GPU Monitor.app" into /Applications and start it (plus the gpumon.py backend) at login.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-[ -f "$DIR/hosts.json" ] || echo "[]" > "$DIR/hosts.json"   # add servers from the widget's + button
+CONF="$HOME/.config/gpumon"
+mkdir -p "$CONF"
+# Older versions kept the server list next to the code.
+[ -f "$DIR/hosts.json" ] && [ ! -f "$CONF/hosts.json" ] && mv "$DIR/hosts.json" "$CONF/hosts.json"
+[ -f "$CONF/hosts.json" ] || echo "[]" > "$CONF/hosts.json"   # add servers in the widget: Settings
 APP="/Applications/GPU Monitor.app"
 LA="$HOME/Library/LaunchAgents"
 PY="$(command -v python3)"
@@ -11,7 +15,7 @@ BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
 
 echo "Building…"
-swiftc -O "$DIR/GPUMonitor.swift" -o "$BUILD/GPUMonitor"
+swiftc -O "$DIR"/app/Sources/*.swift -o "$BUILD/GPUMonitor"
 
 # App icon: render 1024px PNG from the app itself, then make an .icns.
 "$BUILD/GPUMonitor" --icon "$BUILD/icon.png"
@@ -72,6 +76,6 @@ agent() { # label, keepalive-plist-fragment, program args...
 }
 
 # Backend always restarts; the app restarts only after a crash, so "Quit" really quits.
-agent local.gpumon.server "<key>KeepAlive</key><true/>" "$PY" "$DIR/gpumon.py"
+agent local.gpumon.server "<key>KeepAlive</key><true/>" "$PY" "$DIR/backend/gpumon.py"
 agent local.gpumon.app "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>" "$APP/Contents/MacOS/GPUMonitor"
 echo "Installed: $APP (starts at login). Web dashboard: http://localhost:8765"
