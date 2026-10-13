@@ -1,55 +1,48 @@
-# gpumon
+<p align="center"><img src="docs/icon.png" width="96" alt=""></p>
 
-See every GPU on your SSH servers at a glance: utilization, VRAM, and who is running what.
-macOS menu bar app + desktop widget + web dashboard. No agents on the servers: it just runs
-`nvidia-smi` over your existing SSH keys every 5 seconds.
+<h1 align="center">GPU Monitor</h1>
 
-- **Menu bar**: one column per server, `A 99%` (GPU util) over `14/94G` (VRAM used/total), color-coded.
-  Click for per-GPU details and the process list.
-- **Desktop panel**: sits on the desktop like a widget (or as a normal / always-on-top window).
-  GPU + VRAM bars and every process: user, VRAM, runtime, command. Your own processes are highlighted.
-- **Dashboard** at <http://localhost:8765>: cards with 15-minute history, CPU load/RAM,
-  and a "best place to launch now" pick (the GPU with the most free VRAM).
-- **Add / remove servers** from the dashboard (⚙ Servers). No config files to edit.
+<p align="center">A tiny macOS desktop widget showing every GPU on your SSH servers:<br>load, VRAM, and who's using it.</p>
+
+<p align="center"><img src="docs/screenshot.png" width="280" alt="GPU Monitor widget"></p>
+
+No agents to install on the servers. It runs `nvidia-smi` over the SSH keys you already have, every 5 seconds.
+
+- **One line per GPU**: utilization, VRAM used/total, and a list of users with their VRAM. Your own processes are shown in blue.
+- **Hover a row** to see the GPU model, temperature, power, and each process's command and runtime.
+- **Best now**: the GPU with the most free VRAM, so you know where to launch.
+- **Add or remove servers** in the widget: hover, then **+**. To remove one, hover its row and click **✕** twice.
+- **Lives on the desktop** under your windows, like a widget. The **⋯** menu (on hover) switches to a normal window or always-on-top.
+- There's also a full web dashboard with history graphs at <http://localhost:8765>.
 
 ## Install
 
-Requirements: macOS 13+, Xcode command line tools (`xcode-select --install`), Python 3 (stdlib only),
-and passwordless SSH (`ssh user@host` works without a prompt) to each server.
+Requirements:
+- macOS 13+
+- Xcode command line tools (`xcode-select --install`)
+- Python 3 (standard library only)
+- Passwordless SSH to each server: `ssh user@host` must work without a prompt.
 
 ```bash
-git clone https://github.com/Kyk0/gpumon.git ~/gpumon
-cd ~/gpumon
+git clone https://github.com/Kyk0/gpumon.git
+cd gpumon
 ./install.sh
 ```
 
-This builds `~/Applications/GPUBar.app` and registers two login agents, so everything starts
-automatically at login. Then open <http://localhost:8765/#servers> (or menu bar → *Add / Remove Servers…*)
-and add your servers:
+This puts **GPU Monitor** in `/Applications` and starts it at login. Drag the widget anywhere; it remembers its position.
+Hover the widget, click **+**, and add a server with a name and an ssh target (`user@host` or an alias from `~/.ssh/config`).
 
-| name  | ssh target                         |
-|-------|------------------------------------|
-| box1  | `me@gpu-box-1.example.edu`         |
-| lab   | `my-ssh-config-alias`              |
+Servers are saved in `hosts.json` (git-ignored; see `hosts.example.json`).
 
-Servers are saved to `hosts.json` (git-ignored; see `hosts.example.json`).
-
-## Usage
-
-- Menu bar → **Panel Position**: *On Desktop (widget)*, *Normal Window*, or *Always on Top*. Drag the panel anywhere; its position is remembered.
-- Menu bar → **Show/Hide Panel** (⌘P), **Open Dashboard** (⌘D).
-- "Best now" in the menu copies an `ssh … CUDA_VISIBLE_DEVICES=N` command to the clipboard.
-
-After editing `gpumon.py` or `GPUBar.swift`, run `./install.sh` again. Logs: `/tmp/local.gpumon.*.log`.
-
-## Uninstall
+## Update / uninstall
 
 ```bash
-./uninstall.sh
+git pull && ./install.sh   # rebuild and restart
+./uninstall.sh             # remove app + login items (keeps hosts.json)
 ```
+
+Logs: `/tmp/local.gpumon.*.log`.
 
 ## How it works
 
-`gpumon.py` keeps one multiplexed SSH connection per server (`ControlMaster`) and every 5 s runs
-`nvidia-smi --query-gpu`, `nvidia-smi --query-compute-apps` and `ps` to map PIDs to users. It serves
-`/api/status` (JSON) and the dashboard on `127.0.0.1:8765`. `GPUBar.app` reads that JSON.
+`gpumon.py` is a small stdlib-only Python service. It keeps one multiplexed SSH connection per server (`ControlMaster`). Every 5 seconds it runs `nvidia-smi` plus `ps` to map each process to its user, and serves the results as JSON on `127.0.0.1:8765`. The SwiftUI app (`GPUMonitor.swift`, compiled with `swiftc`, no Xcode project needed) reads that JSON and draws the widget.
