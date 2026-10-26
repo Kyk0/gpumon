@@ -7,6 +7,20 @@ import SwiftUI
 
 final class WidgetWindow: NSPanel {
     override var canBecomeKey: Bool { true }
+
+    // There's no Edit menu, so ⌘V/⌘C/⌘X/⌘A/⌘Z would do nothing in the Settings text fields.
+    // Route them to the focused field directly.
+    override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        let mods = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if mods == .command || mods == [.command, .shift], let k = e.charactersIgnoringModifiers?.lowercased() {
+            let sel: Selector? = mods == .command
+                ? ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:)),
+                   "a": #selector(NSText.selectAll(_:)), "z": Selector(("undo:"))][k]
+                : (k == "z" ? Selector(("redo:")) : nil)
+            if let sel, NSApp.sendAction(sel, to: nil, from: self) { return true }
+        }
+        return super.performKeyEquivalent(with: e)
+    }
 }
 
 final class App: NSObject, NSApplicationDelegate {
